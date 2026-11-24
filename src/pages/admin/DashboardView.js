@@ -1,7 +1,7 @@
 /**
  * DashboardView.js — Dashboard Utama Administrator (1 request teragregasi).
  */
-import { apiCall } from '../../services/api.js';
+import { apiCall, seedCache } from '../../services/api.js';
 import { store } from '../../state/store.js';
 import { renderBarChart, renderEmptyState, renderErrorState } from '../../components/ui.js';
 import { esc, formatDateTime, pollingStatusBadge } from '../../utils/format.js';
@@ -24,6 +24,10 @@ export async function renderDashboardView(container, { forceRefresh = false } = 
   }
 
   const { pollings, selectedPolling, kpis, candidateStats, recentActivities } = res.data;
+  // Pre-seed cache daftar polling agar pindah ke menu Polling/Kandidat/Suara/Laporan jadi instan (0 request ekstra!)
+  if (Array.isArray(pollings)) {
+    seedCache('admin.pollings.list', {}, pollings);
+  }
   if (selectedPolling && !store.selectedPollingId) {
     store.selectedPollingId = selectedPolling.polling_id;
   }
