@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Test & Performance Audit Runner — E-Polling BPD</title>
+  <link rel="stylesheet" href="./assets/styles.css" />
+</head>
+<body style="padding:24px;">
+  <div class="container">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h1 style="margin:0;font-size:1.35rem;">Automated Test & Performance Audit Runner</h1>
+          <p style="margin:4px 0 0;color:var(--text-muted);font-size:0.9rem;">Menguji fungsional, keamanan, klik ganda, konkurensi, integritas data, dan performa di browser nyata.</p>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <a href="./index.html" class="btn btn-outline btn-sm">Buka Aplikasi</a>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-run-tests">Jalankan Semua Uji</button>
+        </div>
+      </div>
+      <div id="test-summary" style="margin-bottom:16px;"></div>
+      <div id="test-results" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { apiCall, getApiTelemetry, invalidateCache, resetApiTelemetry } from './src/services/api.js';
+    import { resetLocalMockDb, setSimulatedClientIp } from './src/services/mockAdapter.js';
+    import { store } from './src/state/store.js';
+
+    function assert(cond, msg) {
+      if (!cond) throw new Error(msg || 'Assertion failed');
+    }
+
+    function resetAll({ empty = false } = {}) {
+      resetLocalMockDb({ empty });
+      invalidateCache();
+      resetApiTelemetry();
+      store.clearAdminSession();
+      setSimulatedClientIp('203.0.113.10');
+    }
+
+    const suites = [
+      {
+        name: '1. Keamanan Admin (Login, Gagal Login, Akses Tanpa Hak, Audit Log Bebas Rahasia, Logout)',
+        fn: async () => {
+          resetAll();
+          const unauth = await apiCall('admin.dashboard');
+          assert(!unauth.ok && unauth.code === 'UNAUTHORIZED', 'Akses tanpa token harus ditolak');
+
+          const bad = await apiCall('admin.login', { username: 'admin', password: 'wrong' }, { requiresAuth: false });
+          assert(!bad.ok && bad.code === 'INVALID_CREDENTIALS', 'Password salah harus ditolak');
+
+          const ok = await apiCall('admin.login', { username: 'admin', password: 'admin123' }, { requiresAuth: false });
+          assert(ok.ok && ok.data.token, 'Login valid harus berhasil');
+          store.setAdminSession(ok.data);
+
+          const logs = await apiCall('admin.auditLogs.list', { page: 1, limit: 20 });
+          const raw = JSON.stringify(logs.data.items);
+          assert(!raw.includes('admin123') && !raw.includes(ok.data.token), 'Audit log tidak boleh menyimpan password/token');
+
+          const out = await apiCall('admin.logout');
+          assert(out.ok, 'Logout harus berhasil');
+          return 'Semua pengecekan auth & audit log lulus.';
+        }
+      },
+      {
+        name: '2. CRUD Kandidat, Nomor Urut Unik, & Arsip Tanpa Menghapus Suara Historis',
+        fn: async () => {
+          resetAll();
+          const login = await apiCall('admin.login', { username: 'admin', password: 'admin123' }, { requiresAuth: false });
+          store.setAdminSession(login.data);
+          const pollingId = (await apiCall('admin.pollings.list')).data[0].polling_id;
+
+          const add = await apiCall('admin.candidates.save', {
+            polling_id: pollingId,
+            candidate_number: 4,
+            candidate_name: 'Dewi Lestari',
+            profile: 'Tokoh pemuda',
+            status: 'ACTIVE'
+          });
+          assert(add.ok, 'Tambah kandidat harus berhasil');
+
+          const dup = await apiCall('admin.candidates.save', {
+            polling_id: pollingId,
+            candidate_number: 4,
+            candidate_name: 'Duplikat',
+            status: 'ACTIVE'
+          });
+          assert(!dup.ok && dup.code === 'DUPLICATE_NUMBER', 'Nomor urut duplikat harus ditolak');
+
+          const vote = await apiCall('public.vote', {
+            polling_id: pollingId,
+            candidate_id: add.data.candidate_id,
+            transaction_id: 'tx-arch-001'
+          });
+          assert(vote.ok, 'Vote untuk kandidat baru harus berhasil');
+
+          const arch = await apiCall('admin.candidates.archive', { candidate_id: add.data.candidate_id });
+          assert(arch.ok && arch.data.status === 'ARCHIVED', 'Arsip harus berhasil');
+
+          const res = await apiCall('public.results', { polling_id: pollingId }, { forceRefresh: true });
+          assert(res.data.tally.total_valid_votes === 1, 'Suara historis kandidat arsip harus tetap dihitung');
+          return 'Validasi nomor urut unik & retensi suara historis lulus.';
+        }
+      },
+      {
+        name: '3. Anti-Klik Ganda (Idempotency), Pembatasan IP, 25 Suara Paralel, Kerahasiaan & Koreksi Void',
+        fn: async () => {
+          resetAll();
+          const boot = await apiCall('public.bootstrap');
+          const pollingId = boot.data.polling.polling_id;
+          const [c1, c2] = boot.data.candidates;
+
+          // 10 klik ganda bersamaan dengan transaction_id sama
+          const dc = await Promise.all(
+            Array.from({ length: 10 }, () =>
+              apiCall('public.vote', { polling_id: pollingId, candidate_id: c1.candidate_id, transaction_id: 'tx-dc-999' })
+            )
+          );
+          assert(dc.every((r) => r.ok), 'Idempotent replay harus mengembalikan sukses tanpa duplikasi');
+
+          // Upaya vote kedua dari IP sama
+          const second = await apiCall('public.vote', { polling_id: pollingId, candidate_id: c2.candidate_id, transaction_id: 'tx-second-2' });
+          assert(!second.ok && second.code === 'ALREADY_VOTED', 'Suara kedua dari IP sama harus ditolak');
+
+          // 25 pemilih paralel dari 25 IP berbeda
+          const par = await Promise.all(
+            Array.from({ length: 25 }, (_, i) =>
+              apiCall(
+                'public.vote',
+                { polling_id: pollingId, candidate_id: i % 2 === 0 ? c1.candidate_id : c2.candidate_id, transaction_id: `tx-par-${i}` },
+                { overrideIp: `198.51.100.${i + 1}` }
+              )
+            )
+          );
+          assert(par.filter((r) => r.ok).length === 25, '25 suara paralel harus seluruhnya berhasil');
+
+          const login = await apiCall('admin.login', { username: 'admin', password: 'admin123' }, { requiresAuth: false });
+          store.setAdminSession(login.data);
+
+          const integrity = await apiCall('admin.votes.verifyIntegrity', { polling_id: pollingId });
+          assert(integrity.data.consistent && integrity.data.totalVotesRows === 26, 'Integritas 26 suara vs 26 pembatas harus konsisten');
+
+          const summary = await apiCall('admin.votes.summary', { polling_id: pollingId });
+          const tx = summary.data.transactions[0];
+          assert(!('voter_key_hash' in tx) && !('candidate_id' in tx), 'Transaksi suara tidak boleh mengekspos IP/kandidat');
+
+          const vRes = await apiCall('admin.votes.void', { vote_id: tx.vote_id, reason: 'Koreksi uji resmi panitia' });
+          assert(vRes.ok, 'Koreksi void harus berhasil');
+          return '26 suara paralel konsisten, idempotency & pemisahan privasi terverifikasi.';
+        }
+      },
+      {
+        name: '4. Validasi Status Polling (CLOSED) & Pengaturan Publikasi Hasil (HIDDEN / AFTER_END)',
+        fn: async () => {
+          resetAll();
+          const login = await apiCall('admin.login', { username: 'admin', password: 'admin123' }, { requiresAuth: false });
+          store.setAdminSession(login.data);
+          const p = (await apiCall('admin.pollings.list')).data[0];
+
+          await apiCall('admin.pollings.setStatus', { polling_id: p.polling_id, status: 'CLOSED' });
+          const vClosed = await apiCall('public.vote', { polling_id: p.polling_id, candidate_id: 'cnd_01', transaction_id: 'tx-cls-1' });
+          assert(!vClosed.ok && vClosed.code === 'POLLING_CLOSED', 'Voting saat CLOSED harus ditolak');
+
+          await apiCall('admin.pollings.save', { ...p, status: 'ACTIVE', result_visibility: 'HIDDEN' });
+          const rHidden = await apiCall('public.results', { polling_id: p.polling_id }, { forceRefresh: true });
+          assert(rHidden.data.visible === false, 'Hasil HIDDEN tidak boleh tampil');
+
+          await apiCall('admin.pollings.save', { ...p, status: 'ACTIVE', result_visibility: 'AFTER_END' });
+          const rAfter = await apiCall('public.results', { polling_id: p.polling_id }, { forceRefresh: true });
+          assert(rAfter.data.visible === false, 'Hasil AFTER_END tidak boleh tampil saat polling masih ACTIVE');
+          return 'Kontrol status polling & visibilitas hasil lulus.';
+        }
+      },
+      {
+        name: '5. Audit Performa (Database Kosong, Deduplikasi 5 Request, Cache Hit Pindah Menu, Skala 300 Suara)',
+        fn: async () => {
+          resetAll({ empty: true });
+          const t0 = performance.now();
+          const emptyBoot = await apiCall('public.bootstrap');
+          const emptyMs = performance.now() - t0;
+          assert(emptyBoot.ok && emptyBoot.data.polling === null, 'Empty state harus valid');
+          assert(emptyMs < 500, `Empty state terlalu lambat: ${emptyMs.toFixed(1)} ms`);
+
+          resetAll({ empty: false });
+          await Promise.all([
+            apiCall('public.bootstrap'),
+            apiCall('public.bootstrap'),
+            apiCall('public.bootstrap'),
+            apiCall('public.bootstrap'),
+            apiCall('public.bootstrap')
+          ]);
+          const tel1 = getApiTelemetry();
+          assert(tel1.networkCalls === 1 && tel1.dedupedCalls === 4, 'Deduplikasi harus menghasilkan tepat 1 network call & 4 deduped');
+
+          const tCache = performance.now();
+          await apiCall('public.bootstrap');
+          const cacheMs = performance.now() - tCache;
+          const tel2 = getApiTelemetry();
+          assert(tel2.cacheHits === 1 && cacheMs < 50, 'Cache hit pindah menu harus < 50 ms');
+
+          const boot = await apiCall('public.bootstrap');
+          const pollingId = boot.data.polling.polling_id;
+          const cands = boot.data.candidates;
+          const tScale = performance.now();
+          for (let i = 0; i < 300; i++) {
+            await apiCall(
+              'public.vote',
+              { polling_id: pollingId, candidate_id: cands[i % cands.length].candidate_id, transaction_id: `tx-sc-${i}` },
+              { overrideIp: `10.1.${Math.floor(i / 250)}.${i % 250}` }
+            );
+          }
+          const scaleMs = performance.now() - tScale;
+          const tAgg = performance.now();
+          const agg = await apiCall('public.results', { polling_id: pollingId }, { forceRefresh: true });
+          const aggMs = performance.now() - tAgg;
+          assert(agg.data.tally.total_valid_votes === 300, 'Total 300 suara harus akurat');
+
+          return `Empty DB: ${emptyMs.toFixed(2)} ms | Cache hit: ${cacheMs.toFixed(2)} ms | Dedup: 1/5 req | 300 votes: ${scaleMs.toFixed(1)} ms | Tally 300: ${aggMs.toFixed(2)} ms`;
+        }
+      }
+    ];
+
+    async function runAll() {
+      const resEl = document.getElementById('test-results');
+      const sumEl = document.getElementById('test-summary');
+      resEl.innerHTML = '';
+      let passed = 0;
+
+      for (const s of suites) {
+        const start = performance.now();
+        try {
+          const detail = await s.fn();
+          passed++;
+          const ms = (performance.now() - start).toFixed(1);
+          resEl.innerHTML += `
+            <div class="alert alert-success" style="margin:0;">
+              <strong>PASS</strong> (${ms} ms) — ${s.name}<br/>
+              <span style="font-size:0.85rem;">${detail}</span>
+            </div>
+          `;
+        } catch (err) {
+          resEl.innerHTML += `
+            <div class="alert alert-danger" style="margin:0;">
+              <strong>FAIL</strong> — ${s.name}<br/>
+              <span style="font-size:0.85rem;">${err.message}</span>
+            </div>
+          `;
+        }
+      }
+
+      // Restore clean demo seed after tests
+      resetAll({ empty: false });
+      sumEl.innerHTML = `
+        <div class="alert ${passed === suites.length ? 'alert-success' : 'alert-danger'}" style="margin:0;">
+          <strong>Hasil: ${passed} / ${suites.length} suite pengujian LULUS.</strong>
+        </div>
+      `;
+    }
+
+    document.getElementById('btn-run-tests').addEventListener('click', runAll);
+    runAll();
+  </script>
+</body>
+</html>
