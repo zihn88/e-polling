@@ -1,7 +1,7 @@
 /**
  * HomePage.js — Halaman Beranda Polling Publik.
  */
-import { apiCall } from '../../services/api.js';
+import { apiCall, prefetchInBackground } from '../../services/api.js';
 import { renderEmptyState, renderErrorState } from '../../components/ui.js';
 import { esc, formatDateTime, pollingStatusBadge } from '../../utils/format.js';
 import { renderPublicShell } from './PublicLayout.js';
@@ -23,6 +23,10 @@ export async function mountHomePage(appEl) {
   }
 
   const { settings, polling, windowStatus, candidates, alreadyVoted } = res.data;
+  // Prefetch hasil polling secara diam-diam agar klik menu "Hasil Polling" instan (< 15 ms)
+  if (polling) {
+    prefetchInBackground([['public.results', {}]]);
+  }
 
   if (!polling) {
     appEl.innerHTML = renderPublicShell({
