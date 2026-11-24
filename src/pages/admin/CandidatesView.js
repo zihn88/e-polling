@@ -7,7 +7,19 @@ import { openModal, renderEmptyState, renderErrorState, showToast } from '../../
 import { esc } from '../../utils/format.js';
 
 export async function renderCandidatesView(container, { forceRefresh = false } = {}) {
-  const polRes = await apiCall('admin.pollings.list', {}, { forceRefresh });
+  let polRes;
+  let cRes;
+
+  // Jalankan paralel jika selectedPollingId sudah diketahui (pangkas waktu muat 50%!)
+  if (store.selectedPollingId) {
+    [polRes, cRes] = await Promise.all([
+      apiCall('admin.pollings.list', {}, { forceRefresh }),
+      apiCall('admin.candidates.list', { polling_id: store.selectedPollingId }, { forceRefresh })
+    ]);
+  } else {
+    polRes = await apiCall('admin.pollings.list', {}, { forceRefresh });
+  }
+
   if (!polRes.ok) {
     if (polRes.code === 'UNAUTHORIZED') { location.hash = '#/admin/login'; return; }
     container.innerHTML = renderErrorState(polRes.message, 'retry-cand-pol');
@@ -22,7 +34,9 @@ export async function renderCandidatesView(container, { forceRefresh = false } =
   const pollingId = store.selectedPollingId;
   let candidates = [];
   if (pollingId) {
-    const cRes = await apiCall('admin.candidates.list', { polling_id: pollingId }, { forceRefresh });
+    if (!cRes) {
+      cRes = await apiCall('admin.candidates.list', { polling_id: pollingId }, { forceRefresh });
+    }
     if (!cRes.ok) {
       container.innerHTML = renderErrorState(cRes.message, 'retry-cands-admin');
       return;
@@ -129,7 +143,14 @@ export async function renderCandidatesView(container, { forceRefresh = false } =
           <div class="form-group">
             <label class="form-label">Foto Kandidat (JPG/PNG/WEBP, maks. 2 MB)</label>
             <input type="file" id="cand-photo-input" accept="image/jpeg,image/png,image/webp" class="form-control" />
-            <div id="cand-photo-status" class="form-help">${uploadedFileId ? 'Foto sudah tersimpan.' : 'Opsional — dapat diunggah atau diganti kapan saja.'}</div>
+            <div id="cand-photo-preview" style="margin-top:8px;">
+              ${existing?.photo_url ? `<img src="${esc(existing.photo_url)}" alt="Preview" style="width:72px;height:72px;border-radius:8px;object-fit:cover;border:1px solid var(--border);" />` : ''}
+            </div>
+            <div id="cand-photo-status" class="form-help">${uploadedFileId ? 'Foto sudah tersimpan.' : 'Opsional — unggah foto atau isi URL foto di bawah.'}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Atau URL Foto Langsung (opsional)</label>
+            <input type="url" id="cand-photo-url-manual" class="form-control" value="${esc(uploadedFileId && uploadedFileId.startsWith('http') ? uploadedFileId : '')}" placeholder="https://..." />
           </div>
           <div class="form-group">
             <label class="form-label">Profil Singkat</label>
@@ -155,6 +176,8 @@ export async function renderCandidatesView(container, { forceRefresh = false } =
         const saveBtn = root.querySelector('#cand-save');
         const photoInput = root.querySelector('#cand-photo-input');
         const photoStatus = root.querySelector('#cand-photo-status');
+        const photoPreview = root.querySelector('#cand-photo-preview');
+        const photoManual = root.querySelector('#cand-photo-url-manual');
 
         root.querySelector('#cand-cancel')?.addEventListener('click', close);
 
@@ -162,19 +185,20 @@ export async function renderCandidatesView(container, { forceRefresh = false } =
           const file = photoInput.files?.[0];
           if (!file) return;
           if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-            photoStatus.textContent = 'Format tidak didukung. Gunakan JPG, PNG, atau WEBP.';
+            photoStatus.innerHTML = `<span style="color:var(--danger);font-weight:600;">Format tidak didukung. Gunakan JPG, PNG, atau WEBP.</span>`;
             photoInput.value = '';
             return;
           }
           if (file.size > 2 * 1024 * 1024) {
-            photoStatus.textContent = 'Ukuran foto melebihi 2 MB.';
+            photoStatus.innerHTML = `<span style="color:var(--danger);font-weight:600;">Ukuran foto melebihi 2 MB.</span>`;
             photoInput.value = '';
             return;
           }
           const reader = new FileReader();
-          photoStatus.textContent = 'Mengunggah foto...';
+          photoStatus.textContent = 'Mengunggah foto ke Google Drive...';
           saveBtn.disabled = true;
           reader.onload = async () => {
+            photoPreview.innerHTML = `<img src="${reader.result}" alt="Preview" style="width:72px;height:72px;border-radius:8px;object-fit:cover;border:1px solid var(--border);" />`;
             const up = await apiCall('admin.candidates.uploadPhoto', {
               mimeType: file.type,
               fileName: file.name,
@@ -183,9 +207,10 @@ export async function renderCandidatesView(container, { forceRefresh = false } =
             saveBtn.disabled = false;
             if (up.ok) {
               uploadedFileId = up.data.photo_file_id;
-              photoStatus.textContent = 'Foto berhasil diunggah.';
+              photoStatus.innerHTML = `<span style="color:var(--success);font-weight:600;">Foto berhasil diunggah ke Google Drive!</span>`;
             } else {
-              photoStatus.textContent = `Gagal unggah: ${up.message}`;
+              photoStatus.innerHTML = `<span style="color:var(--danger);font-weight:600;">Gagal unggah foto: ${esc(up.message)}</span>`;
+              showToast(`Gagal unggah foto: ${up.message}`, 'danger', 5000);
             }
           };
           reader.readAsDataURL(file);
@@ -196,12 +221,15 @@ export async function renderCandidatesView(container, { forceRefresh = false } =
           saveBtn.textContent = 'Menyimpan...';
           errBox.innerHTML = '';
 
+          const manualUrl = photoManual ? photoManual.value.trim() : '';
+          const finalPhotoId = manualUrl || uploadedFileId;
+
           const res = await apiCall('admin.candidates.save', {
             candidate_id: existing?.candidate_id || '',
             polling_id: pollingId,
             candidate_number: Number(form.candidate_number.value),
             candidate_name: form.candidate_name.value.trim(),
-            photo_file_id: uploadedFileId,
+            photo_file_id: finalPhotoId,
             profile: form.profile.value.trim(),
             vision: form.vision.value.trim(),
             mission: form.mission.value.trim(),
