@@ -1,9 +1,15 @@
 /**
- * Reusable UI Components (Toast, Modal, Empty/Error/Skeleton States, Bar Chart).
+ * Reusable UI Components (Toast, Modal, Empty/Error/Skeleton States,
+ * Animated Bar Chart, Ultra-Fast Number Counter).
  */
 import { esc } from '../utils/format.js';
 
-export function showToast(message, type = 'default', durationMs = 3600) {
+const REDUCED_MOTION = () =>
+  typeof window !== 'undefined' &&
+  window.matchMedia &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+export function showToast(message, type = 'default', durationMs = 3400) {
   const root = document.getElementById('toast-root');
   if (!root) return;
   const el = document.createElement('div');
@@ -13,6 +19,30 @@ export function showToast(message, type = 'default', durationMs = 3600) {
   setTimeout(() => {
     el.remove();
   }, durationMs);
+}
+
+/**
+ * Ultra-fast smooth number counter (140 ms) untuk elemen .kpi-value[data-count].
+ * Tidak memblokir interaksi, dan langsung melompat ke angka akhir jika prefers-reduced-motion aktif.
+ */
+export function animateCounters(root = document) {
+  if (!root || REDUCED_MOTION()) return;
+  const els = root.querySelectorAll('[data-count]');
+  const duration = 140;
+
+  els.forEach((el) => {
+    const target = Number(el.dataset.count);
+    if (!Number.isFinite(target) || target <= 0) return;
+    const start = performance.now();
+    const tick = (now) => {
+      const progress = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      el.textContent = String(Math.round(target * eased));
+      if (progress < 1) requestAnimationFrame(tick);
+      else el.textContent = String(target);
+    };
+    requestAnimationFrame(tick);
+  });
 }
 
 export function openModal({ title, bodyHtml, footerHtml = '', onMount = null }) {
@@ -46,7 +76,7 @@ export function closeModal() {
 
 export function renderEmptyState(title, message, actionHtml = '') {
   return `
-    <div class="state-box">
+    <div class="state-box view-enter">
       <h3>${esc(title)}</h3>
       <p>${esc(message)}</p>
       ${actionHtml}
@@ -56,7 +86,7 @@ export function renderEmptyState(title, message, actionHtml = '') {
 
 export function renderErrorState(message, retryId = 'btn-retry') {
   return `
-    <div class="state-box">
+    <div class="state-box view-enter">
       <h3>Terjadi Kesalahan</h3>
       <p>${esc(message || 'Koneksi atau server belum merespons.')}</p>
       <button type="button" class="btn btn-primary" id="${esc(retryId)}">Coba Lagi</button>
@@ -88,19 +118,28 @@ export function renderBarChart(candidates, totalValid) {
   }
 
   const sorted = [...candidates].sort((a, b) => b.votes - a.votes || a.candidate_number - b.candidate_number);
+  const topVotes = sorted[0]?.votes || 0;
+
   return `
     <div class="chart-list">
-      ${sorted.map((c) => `
-        <div>
-          <div class="chart-row-head">
-            <span><strong>No. ${esc(c.candidate_number)}</strong> — ${esc(c.candidate_name)}</span>
-            <span><strong>${esc(c.votes)}</strong> suara (${esc(c.percentage)}%)</span>
+      ${sorted.map((c) => {
+        const isLeader = topVotes > 0 && c.votes === topVotes;
+        const pct = Math.min(100, Math.max(0, Number(c.percentage) || 0));
+        return `
+          <div>
+            <div class="chart-row-head">
+              <span>
+                <strong>No. ${esc(c.candidate_number)}</strong> — ${esc(c.candidate_name)}
+                ${isLeader ? `<span class="badge badge-info" style="margin-left:6px;padding:2px 8px;font-size:0.7rem;">Tertinggi</span>` : ''}
+              </span>
+              <span><strong>${esc(c.votes)}</strong> suara (${esc(c.percentage)}%)</span>
+            </div>
+            <div class="chart-track">
+              <div class="chart-fill ${isLeader ? 'is-leader' : ''}" style="width:${pct}%"></div>
+            </div>
           </div>
-          <div class="chart-track">
-            <div class="chart-fill" style="width:${Math.min(100, Math.max(0, Number(c.percentage) || 0))}%"></div>
-          </div>
-        </div>
-      `).join('')}
+        `;
+      }).join('')}
     </div>
   `;
 }
