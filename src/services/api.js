@@ -25,6 +25,20 @@ function makeCacheKey(action, payload) {
   return `${action}::${JSON.stringify(payload || {})}`;
 }
 
+export function hasFreshCache(action, payload = {}) {
+  const entry = responseCache.get(makeCacheKey(action, payload));
+  return Boolean(entry && entry.expiresAt > Date.now());
+}
+
+export function seedCache(action, payload, data) {
+  const ttl = APP_CONFIG.CACHE_TTL_MS[action] || 0;
+  if (ttl <= 0) return;
+  responseCache.set(makeCacheKey(action, payload), {
+    expiresAt: Date.now() + ttl,
+    value: { ok: true, code: 'SUCCESS', message: 'OK', data, meta: { cached: true } }
+  });
+}
+
 export function invalidateCache(prefixes = []) {
   if (!prefixes || prefixes.length === 0) {
     responseCache.clear();
