@@ -10,14 +10,14 @@ export async function renderCandidatesView(container, { forceRefresh = false } =
   let polRes;
   let cRes;
 
-  // Jalankan paralel jika selectedPollingId sudah diketahui (pangkas waktu muat 50%!)
+  // Jalankan paralel jika selectedPollingId sudah diketahui (pollings pakai cache, tidak perlu forceRefresh)
   if (store.selectedPollingId) {
     [polRes, cRes] = await Promise.all([
-      apiCall('admin.pollings.list', {}, { forceRefresh }),
+      apiCall('admin.pollings.list', {}),
       apiCall('admin.candidates.list', { polling_id: store.selectedPollingId }, { forceRefresh })
     ]);
   } else {
-    polRes = await apiCall('admin.pollings.list', {}, { forceRefresh });
+    polRes = await apiCall('admin.pollings.list', {});
   }
 
   if (!polRes.ok) {
