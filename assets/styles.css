@@ -726,10 +726,28 @@ textarea.form-control { min-height: 88px; resize: vertical; }
 
 @media (max-width: 640px) {
   .container { padding: 0 14px; }
-  .navbar-inner { gap: 8px; padding: 10px 0; }
-  .nav-links { width: 100%; justify-content: space-between; gap: 2px; }
-  .nav-link { padding: 7px 10px; font-size: 0.82rem; }
-  .hero { padding: 24px 18px; border-radius: 18px; }
+  .navbar-inner { gap: 8px; padding: 8px 0 6px; }
+  .nav-links {
+    width: 100%;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 4px;
+    padding-bottom: 2px;
+  }
+  .nav-links::-webkit-scrollbar { display: none; }
+  .nav-link {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 6px 10px;
+    min-height: 34px;
+    font-size: 0.8rem;
+  }
+  .hero { padding: 22px 18px; border-radius: 18px; }
+  .hero-meta { gap: 6px; }
+  .hero-meta span { padding: 5px 10px; font-size: 0.78rem; }
   .hero-actions .btn { flex: 1 1 100%; }
   .card { padding: 16px; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
