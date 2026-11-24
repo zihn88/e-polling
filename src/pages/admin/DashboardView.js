@@ -1,17 +1,14 @@
 /**
  * DashboardView.js — Dashboard Utama Administrator (1 request teragregasi).
  */
-import { apiCall, seedCache } from '../../services/api.js';
+import { apiCall, prefetchInBackground, seedCache } from '../../services/api.js';
 import { store } from '../../state/store.js';
 import { renderBarChart, renderEmptyState, renderErrorState } from '../../components/ui.js';
 import { esc, formatDateTime, pollingStatusBadge } from '../../utils/format.js';
 
 export async function renderDashboardView(container, { forceRefresh = false } = {}) {
-  const res = await apiCall(
-    'admin.dashboard',
-    store.selectedPollingId ? { polling_id: store.selectedPollingId } : {},
-    { forceRefresh }
-  );
+  const queryPayload = store.selectedPollingId ? { polling_id: store.selectedPollingId } : {};
+  const res = await apiCall('admin.dashboard', queryPayload, { forceRefresh });
 
   if (!res.ok) {
     if (res.code === 'UNAUTHORIZED' || res.code === 'SESSION_EXPIRED') {
@@ -24,13 +21,31 @@ export async function renderDashboardView(container, { forceRefresh = false } = 
   }
 
   const { pollings, selectedPolling, kpis, candidateStats, recentActivities } = res.data;
-  // Pre-seed cache daftar polling agar pindah ke menu Polling/Kandidat/Suara/Laporan jadi instan (0 request ekstra!)
+  // Pre-seed cache agar klik balik ke Dashboard maupun ke Periode Polling langsung 0 ms!
   if (Array.isArray(pollings)) {
     seedCache('admin.pollings.list', {}, pollings);
   }
-  if (selectedPolling && !store.selectedPollingId) {
-    store.selectedPollingId = selectedPolling.polling_id;
+  if (selectedPolling) {
+    if (!store.selectedPollingId) {
+      store.selectedPollingId = selectedPolling.polling_id;
+    }
+    seedCache('admin.dashboard', { polling_id: selectedPolling.polling_id }, res.data);
   }
+
+  // Hangatkan cache menu admin lainnya secara diam-diam di background (tidak memblokir UI)
+  const pid = store.selectedPollingId;
+  const bgTasks = [
+    ['admin.auditLogs.list', { page: 1, limit: 20, action: '' }],
+    ['admin.settings.get', {}]
+  ];
+  if (pid) {
+    bgTasks.unshift(
+      ['admin.candidates.list', { polling_id: pid }],
+      ['admin.votes.summary', { polling_id: pid }],
+      ['admin.reports.get', { polling_id: pid }]
+    );
+  }
+  prefetchInBackground(bgTasks);
 
   const pollingSelector = pollings.length > 0
     ? `
