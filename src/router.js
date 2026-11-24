@@ -5,6 +5,7 @@
 import { mountHomePage } from './pages/public/HomePage.js';
 import { mountCandidatesPage } from './pages/public/CandidatesPage.js';
 import { mountResultsPage } from './pages/public/ResultsPage.js';
+import { mountDisclaimerPage } from './pages/public/DisclaimerPage.js';
 
 let activeNavId = 0;
 
@@ -32,6 +33,10 @@ export async function handleRoute() {
   }
   if (route === '/hasil') {
     await mountResultsPage(appEl);
+    return;
+  }
+  if (route === '/ketentuan' || route === '/disclaimer') {
+    await mountDisclaimerPage(appEl);
     return;
   }
 
