@@ -3,7 +3,7 @@
  */
 import { apiCall, prefetchInBackground, seedCache } from '../../services/api.js';
 import { store } from '../../state/store.js';
-import { renderBarChart, renderEmptyState, renderErrorState } from '../../components/ui.js';
+import { animateCounters, renderBarChart, renderEmptyState, renderErrorState } from '../../components/ui.js';
 import { esc, formatDateTime, pollingStatusBadge } from '../../utils/format.js';
 
 export async function renderDashboardView(container, { forceRefresh = false } = {}) {
@@ -81,17 +81,17 @@ export async function renderDashboardView(container, { forceRefresh = false } = 
         <div class="kpi-grid">
           <div class="kpi-card">
             <div class="kpi-label">Total Kandidat</div>
-            <div class="kpi-value">${esc(kpis.totalCandidates)}</div>
+            <div class="kpi-value" data-count="${esc(kpis.totalCandidates)}">${esc(kpis.totalCandidates)}</div>
             <div class="kpi-sub">Terdaftar pada periode ini</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">Total Suara Sah</div>
-            <div class="kpi-value">${esc(kpis.totalValidVotes)}</div>
+            <div class="kpi-value" data-count="${esc(kpis.totalValidVotes)}">${esc(kpis.totalValidVotes)}</div>
             <div class="kpi-sub">Dari ${esc(kpis.totalVotesRecorded)} total transaksi</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">Identitas Pembatas Unik</div>
-            <div class="kpi-value">${esc(kpis.uniqueVoterKeys)}</div>
+            <div class="kpi-value" data-count="${esc(kpis.uniqueVoterKeys)}">${esc(kpis.uniqueVoterKeys)}</div>
             <div class="kpi-sub">Hash jaringan unik tercatat</div>
           </div>
           <div class="kpi-card">
@@ -133,6 +133,8 @@ export async function renderDashboardView(container, { forceRefresh = false } = 
         </div>
       `}
   `;
+
+  animateCounters(container);
 
   container.querySelector('#dash-polling-select')?.addEventListener('change', (e) => {
     store.selectedPollingId = e.target.value;
