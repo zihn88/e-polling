@@ -31,6 +31,7 @@ export function renderPublicShell({ activeRoute, settings, polling, contentHtml 
           <a href="#/" class="nav-link ${activeRoute === '/' ? 'active' : ''}">Beranda</a>
           <a href="#/kandidat" class="nav-link ${activeRoute === '/kandidat' ? 'active' : ''}">Daftar Kandidat</a>
           <a href="#/hasil" class="nav-link ${activeRoute === '/hasil' ? 'active' : ''}">Hasil Polling</a>
+          <a href="#/ketentuan" class="nav-link ${activeRoute === '/ketentuan' ? 'active' : ''}">Ketentuan</a>
           <a href="#/admin/login" class="nav-link">Admin</a>
         </nav>
       </div>
@@ -45,6 +46,7 @@ export function renderPublicShell({ activeRoute, settings, polling, contentHtml 
         <strong>E-Polling Pemilihan Kandidat BPD — ${esc(villageName)}</strong>
         <p style="margin:6px 0 0;">
           ${esc(settings?.privacy_notice || 'Sistem polling publik tanpa akun pemilih. Pembatasan berbasis IP diterapkan per periode pemilihan dan tidak menjamin satu orang satu suara secara mutlak.')}
+          <a href="#/ketentuan" style="margin-left:6px;font-weight:600;">Baca Ketentuan &amp; Pernyataan Lengkap &rarr;</a>
         </p>
       </div>
     </footer>
