@@ -2,7 +2,7 @@
  * ResultsPage.js — Halaman Hasil Polling Publik (menghormati result_visibility: HIDDEN / LIVE / AFTER_END).
  */
 import { apiCall } from '../../services/api.js';
-import { renderBarChart, renderEmptyState, renderErrorState } from '../../components/ui.js';
+import { animateCounters, renderBarChart, renderEmptyState, renderErrorState } from '../../components/ui.js';
 import { esc, formatDateTime, pollingStatusBadge } from '../../utils/format.js';
 import { renderPublicShell } from './PublicLayout.js';
 
@@ -59,12 +59,12 @@ export async function mountResultsPage(appEl, { forceRefresh = false } = {}) {
     <div class="kpi-grid">
       <div class="kpi-card">
         <div class="kpi-label">Total Suara Sah</div>
-        <div class="kpi-value">${esc(tally.total_valid_votes)}</div>
+        <div class="kpi-value" data-count="${esc(tally.total_valid_votes)}">${esc(tally.total_valid_votes)}</div>
         <div class="kpi-sub">Suara terverifikasi valid</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Jumlah Kandidat</div>
-        <div class="kpi-value">${esc(tally.candidates.length)}</div>
+        <div class="kpi-value" data-count="${esc(tally.candidates.length)}">${esc(tally.candidates.length)}</div>
         <div class="kpi-sub">Kandidat pada periode ini</div>
       </div>
       <div class="kpi-card">
@@ -111,6 +111,7 @@ export async function mountResultsPage(appEl, { forceRefresh = false } = {}) {
   `;
 
   appEl.innerHTML = renderPublicShell({ activeRoute: '/hasil', settings, polling, contentHtml });
+  animateCounters(appEl);
 
   document.getElementById('btn-refresh-results')?.addEventListener('click', (e) => {
     e.currentTarget.disabled = true;
