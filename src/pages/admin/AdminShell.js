@@ -84,27 +84,33 @@ export async function mountAdminSection(appEl, section = 'dashboard') {
   const viewEl = appEl.querySelector('#admin-view');
   if (!viewEl) return;
 
-  switch (validSection) {
-    case 'dashboard':
-      await renderDashboardView(viewEl);
-      break;
-    case 'pollings':
-      await renderPollingsView(viewEl);
-      break;
-    case 'candidates':
-      await renderCandidatesView(viewEl);
-      break;
-    case 'votes':
-      await renderVotesView(viewEl);
-      break;
-    case 'reports':
-      await renderReportsView(viewEl);
-      break;
-    case 'audit':
-      await renderAuditLogsView(viewEl);
-      break;
-    case 'settings':
-      await renderSettingsView(viewEl);
-      break;
+  // Berikan respons visual instan (< 16ms) saat berpindah ke menu baru yang belum ter-cache
+  viewEl.style.opacity = '0.65';
+  try {
+    switch (validSection) {
+      case 'dashboard':
+        await renderDashboardView(viewEl);
+        break;
+      case 'pollings':
+        await renderPollingsView(viewEl);
+        break;
+      case 'candidates':
+        await renderCandidatesView(viewEl);
+        break;
+      case 'votes':
+        await renderVotesView(viewEl);
+        break;
+      case 'reports':
+        await renderReportsView(viewEl);
+        break;
+      case 'audit':
+        await renderAuditLogsView(viewEl);
+        break;
+      case 'settings':
+        await renderSettingsView(viewEl);
+        break;
+    }
+  } finally {
+    viewEl.style.opacity = '1';
   }
 }
