@@ -1,19 +1,21 @@
 /**
  * Konfigurasi Publik Frontend (ZERO SECRETS).
- * Isi API_URL dengan URL Cloudflare Worker Proxy Anda setelah deployment.
- * Jika API_URL kosong, aplikasi otomatis berjalan pada Local Simulation Mode
- * agar dapat langsung diuji secara fungsional, keamanan, dan performa di lokal.
+ * Cache TTL dibuat cukup panjang (3 menit) karena setiap aksi simpan/edit/hapus/vote
+ * otomatis meng-invalidate cache terkait — sehingga perpindahan antar-menu instan (< 50 ms).
  */
 export const APP_CONFIG = {
   API_URL: 'https://epolling-bpd-proxy.ujek15.workers.dev',
-  REQUEST_TIMEOUT_MS: 12000,
+  REQUEST_TIMEOUT_MS: 15000,
   CACHE_TTL_MS: {
-    'public.bootstrap': 30_000,
-    'public.results': 15_000,
-    'admin.dashboard': 15_000,
-    'admin.pollings.list': 30_000,
-    'admin.candidates.list': 30_000,
-    'admin.settings.get': 60_000
+    'public.bootstrap': 60_000,
+    'public.results': 30_000,
+    'admin.dashboard': 180_000,
+    'admin.pollings.list': 180_000,
+    'admin.candidates.list': 180_000,
+    'admin.votes.summary': 180_000,
+    'admin.reports.get': 180_000,
+    'admin.auditLogs.list': 120_000,
+    'admin.settings.get': 300_000
   }
 };
 
