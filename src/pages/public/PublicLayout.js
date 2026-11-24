@@ -37,7 +37,7 @@ export function renderPublicShell({ activeRoute, settings, polling, contentHtml 
       </div>
     </header>
     <main class="public-main">
-      <div class="container" id="public-content">
+      <div class="container view-enter" id="public-content">
         ${contentHtml}
       </div>
     </main>
