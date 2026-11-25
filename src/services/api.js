@@ -7,6 +7,7 @@
  */
 import { APP_CONFIG, isLocalMockMode } from '../config.js';
 import { store } from '../state/store.js';
+import { getDeviceIdentity } from '../utils/deviceId.js';
 import { executeMockAction } from './mockAdapter.js';
 
 const CACHE_STORAGE_PREFIX = 'epbpd_cache_v1::';
@@ -149,12 +150,17 @@ export async function apiCall(action, payload = {}, options = {}) {
 
   const token = requiresAuth ? store.getAdminToken() : '';
 
+  // Sisipkan identitas perangkat ringan pada endpoint publik voting/bootstrap (1 HP = 1 Suara + anti-Incognito)
+  const finalPayload = (action === 'public.bootstrap' || action === 'public.vote')
+    ? { ...getDeviceIdentity(), ...(payload || {}) }
+    : payload;
+
   const execPromise = (async () => {
     telemetry.networkCalls++;
     let res;
 
     if (isLocalMockMode()) {
-      res = await executeMockAction(action, payload, token, options);
+      res = await executeMockAction(action, finalPayload, token, options);
     } else {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), APP_CONFIG.REQUEST_TIMEOUT_MS);
@@ -162,7 +168,7 @@ export async function apiCall(action, payload = {}, options = {}) {
         const httpRes = await fetch(APP_CONFIG.API_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, payload, token }),
+          body: JSON.stringify({ action, payload: finalPayload, token }),
           signal: controller.signal
         });
         res = await httpRes.json();
